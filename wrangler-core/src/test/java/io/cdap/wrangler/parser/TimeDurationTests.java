@@ -20,7 +20,7 @@ import io.cdap.wrangler.api.parser.TimeDuration;
 import org.junit.Assert;
 import org.junit.Test;
 
-public class TimeDurationTest {
+public class TimeDurationTests {
 
   @Test
   public void testTimeDurationParsing() {

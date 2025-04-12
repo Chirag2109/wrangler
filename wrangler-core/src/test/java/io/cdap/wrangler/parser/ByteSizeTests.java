@@ -20,7 +20,7 @@ import io.cdap.wrangler.api.parser.ByteSize;
 import org.junit.Assert;
 import org.junit.Test;
 
-public class ByteSizeTest {
+public class ByteSizeTests {
 
   @Test
   public void testByteSizeParsing() {

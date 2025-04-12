@@ -1,17 +1,17 @@
 /*
- *  Copyright © 2017-2019 Cask Data, Inc.
+ * Copyright © 2017-2019 Cask Data, Inc.
  *
- *  Licensed under the Apache License, Version 2.0 (the "License"); you may not
- *  use this file except in compliance with the License. You may obtain a copy of
- *  the License at
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not
+ * use this file except in compliance with the License. You may obtain a copy of
+ * the License at
  *
- *  http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- *  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- *  License for the specific language governing permissions and limitations under
- *  the License.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ * License for the specific language governing permissions and limitations under
+ * the License.
  */
 
 package io.cdap.directives.transformation;
@@ -23,14 +23,13 @@ import io.cdap.wrangler.api.DirectiveParseException;
 import io.cdap.wrangler.api.ExecutorContext;
 import io.cdap.wrangler.api.Row;
 import io.cdap.wrangler.api.TransientVariableScope;
+import io.cdap.wrangler.api.parser.ByteSize;
 import io.cdap.wrangler.api.parser.ColumnName;
+import io.cdap.wrangler.api.parser.TimeDuration;
 import io.cdap.wrangler.api.parser.TokenType;
 import io.cdap.wrangler.api.parser.UsageDefinition;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * A directive that aggregates statistics for byte sizes and time durations
@@ -138,6 +137,7 @@ public class AggregateStats implements Directive {
      */
     @Override
     public List<Row> execute(List<Row> rows, ExecutorContext context) throws DirectiveExecutionException {
+        // Get the store from context
         String storeKey = NAME + "-" + sizeColumn + "-" + timeColumn;
         AggregateStatsStore store = (AggregateStatsStore) context.getTransientStore().get(storeKey);
 
@@ -146,12 +146,7 @@ public class AggregateStats implements Directive {
             context.getTransientStore().set(TransientVariableScope.GLOBAL, storeKey, store);
         }
 
-        // Regex for parsing byte sizes (e.g., "10MB", "500KB", "100B")
-        Pattern byteSizePattern = Pattern.compile("(\\d+\\.?\\d*)\\s*(B|KB|MB|GB|TB|PB)", Pattern.CASE_INSENSITIVE);
-
-        // Regex for parsing time durations (e.g., "10s", "5m", "2h", "100ms")
-        Pattern timePattern = Pattern.compile("(\\d+\\.?\\d*)\\s*(ms|s|m|h|d)", Pattern.CASE_INSENSITIVE);
-
+        // Process each row
         for (Row row : rows) {
             if (row.find(sizeColumn) != -1 && row.find(timeColumn) != -1) {
                 Object sizeObj = row.getValue(sizeColumn);
@@ -159,31 +154,14 @@ public class AggregateStats implements Directive {
 
                 // Handle byte size
                 long bytes = 0;
-                if (sizeObj instanceof String) {
-                    Matcher matcher = byteSizePattern.matcher((String) sizeObj);
-                    if (matcher.matches()) {
-                        double value = Double.parseDouble(matcher.group(1));
-                        String unit = matcher.group(2).toUpperCase();
-                        switch (unit) {
-                            case "B":
-                                bytes = (long) value;
-                                break;
-                            case "KB":
-                                bytes = (long) (value * 1024);
-                                break;
-                            case "MB":
-                                bytes = (long) (value * 1024 * 1024);
-                                break;
-                            case "GB":
-                                bytes = (long) (value * 1024 * 1024 * 1024);
-                                break;
-                            case "TB":
-                                bytes = (long) (value * 1024 * 1024 * 1024 * 1024);
-                                break;
-                            case "PB":
-                                bytes = (long) (value * 1024 * 1024 * 1024 * 1024 * 1024);
-                                break;
-                        }
+                if (sizeObj instanceof ByteSize) {
+                    bytes = ((ByteSize) sizeObj).getBytes();
+                } else if (sizeObj instanceof String) {
+                    try {
+                        bytes = new ByteSize((String) sizeObj).getBytes();
+                    } catch (Exception e) {
+                        // Skip if not parseable
+                        continue;
                     }
                 } else if (sizeObj instanceof Number) {
                     bytes = ((Number) sizeObj).longValue();
@@ -191,28 +169,14 @@ public class AggregateStats implements Directive {
 
                 // Handle time duration
                 long nanos = 0;
-                if (timeObj instanceof String) {
-                    Matcher matcher = timePattern.matcher((String) timeObj);
-                    if (matcher.matches()) {
-                        double value = Double.parseDouble(matcher.group(1));
-                        String unit = matcher.group(2).toLowerCase();
-                        switch (unit) {
-                            case "ms":
-                                nanos = (long) (value * 1_000_000);
-                                break;
-                            case "s":
-                                nanos = (long) (value * 1_000_000_000);
-                                break;
-                            case "m":
-                                nanos = (long) (value * 60 * 1_000_000_000);
-                                break;
-                            case "h":
-                                nanos = (long) (value * 3600 * 1_000_000_000);
-                                break;
-                            case "d":
-                                nanos = (long) (value * 24 * 3600 * 1_000_000_000);
-                                break;
-                        }
+                if (timeObj instanceof TimeDuration) {
+                    nanos = ((TimeDuration) timeObj).getNanos();
+                } else if (timeObj instanceof String) {
+                    try {
+                        nanos = new TimeDuration((String) timeObj).getNanos();
+                    } catch (Exception e) {
+                        // Skip if not parseable
+                        continue;
                     }
                 } else if (timeObj instanceof Number) {
                     nanos = ((Number) timeObj).longValue() * 1_000_000; // Assume milliseconds
@@ -222,6 +186,7 @@ public class AggregateStats implements Directive {
             }
         }
 
+        // Output results if no more rows
         if (rows.isEmpty()) {
             Row result = new Row();
             double totalSizeMB = store.getTotalBytes() / (1024.0 * 1024.0);
@@ -229,10 +194,7 @@ public class AggregateStats implements Directive {
             double totalTimeSec = store.getTotalNanos() / 1_000_000_000.0;
             result.add(totalTimeColumn, totalTimeSec);
             result.add("row_count", store.getRowCount());
-
-            List<Row> singleResult = new ArrayList<>();
-            singleResult.add(result);
-            return singleResult;
+            return List.of(result);
         }
 
         return rows;
@@ -255,7 +217,7 @@ public class AggregateStats implements Directive {
      * allowing the {@code AggregateStats} directive to persist statistics across
      * multiple executions.
      */
-    private static class AggregateStatsStore {
+    public static class AggregateStatsStore {
         /**
          * The total number of bytes accumulated.
          */

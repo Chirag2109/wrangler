@@ -80,6 +80,9 @@ public class TimeDuration implements Token {
     private long parseNanos(String value) {
         String num = value.replaceAll("[^0-9.]", "");
         double val = Double.parseDouble(num);
+        if (value.endsWith("ns")) {
+            return (long) val;
+        }
         if (value.endsWith("ms")) {
             return (long) (val * 1_000_000);
         }
